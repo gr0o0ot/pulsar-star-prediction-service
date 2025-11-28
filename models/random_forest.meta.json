@@ -1,0 +1,18 @@
+{
+    "model_name": "random_forest",
+    "train_time_sec": 1.64,
+    "auc": 0.9806764663907521,
+    "neg_count": 11375,
+    "pos_count": 1153,
+    "features": [
+        "Mean of the integrated profile",
+        "Standard deviation of the integrated profile",
+        "Excess kurtosis of the integrated profile",
+        "Skewness of the integrated profile",
+        "Mean of the DM-SNR curve",
+        "Standard deviation of the DM-SNR curve",
+        "Excess kurtosis of the DM-SNR curve",
+        "Skewness of the DM-SNR curve"
+    ],
+    "timestamp": 1764280490.8793387
+}
