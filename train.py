@@ -14,7 +14,9 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import Pipeline as SklearnPipeline
+from imblearn.pipeline import Pipeline as ImbPipeline
+from imblearn.over_sampling import SMOTE
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
@@ -97,23 +99,26 @@ def build_pipeline(model_name, pos_weight):
     imputer = SimpleImputer(strategy="mean")
     scaler = StandardScaler()
 
-    preprocessor = Pipeline([
+    preprocessor = SklearnPipeline([
         ("imputer", imputer),
-        ("scaler", scaler)
+        ("scaler", scaler),
     ])
 
     ct = ColumnTransformer([
-        ("num", preprocessor, list(range(len(FEATURES))))
+        ("num", preprocessor, list(range(len(FEATURES)))),
     ])
 
     estimator = make_estimator(model_name, pos_weight=pos_weight)
+
     if model_name == "lightgbm":
         estimator = CalibratedClassifierCV(estimator, method="isotonic", cv=3)
 
-    pipeline = Pipeline([
+    pipeline = ImbPipeline([
         ("pre", ct),
-        ("clf", estimator)
+        ("smote", SMOTE(random_state=42)),
+        ("clf", estimator),
     ])
+
     return pipeline
 
 
