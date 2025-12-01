@@ -30,7 +30,6 @@ with st.sidebar:
                             help="Point this to your FastAPI service (e.g., http://localhost:8000)")
     st.session_state["api_url"] = api_url
 
-
     st.header("Model Selection")
     selected_model = st.selectbox(
         "Choose model",
@@ -70,6 +69,7 @@ if st.button("Predict"):
         st.error(f"Request failed: {e}")
 
 st.markdown("---")
+
 
 # ---- Batch Scoring + EDA ----------------------------------------------------
 st.subheader("Batch Scoring + EDA")
