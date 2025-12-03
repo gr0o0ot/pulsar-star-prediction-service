@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  pulsar-service:
+    build: .
+    container_name: pulsar-service
+    ports:
+      - "8000:8000"   # FastAPI
+      - "8501:8501"   # Streamlit
+    volumes:
+      - .:/app
+    restart: always
