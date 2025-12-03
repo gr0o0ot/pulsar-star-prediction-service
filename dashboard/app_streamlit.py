@@ -1,15 +1,17 @@
-# dashboard/app_streamlit.py
+# ========== app_streamlit.py ==========
 import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
 
-from eda import render_eda  # separate EDA module
+from eda import render_eda
+from chatbot import ask_question  # <-- Chatbot integration
 
+# ------------------ PAGE CONFIG ------------------
 st.set_page_config(page_title="Pulsar Star Prediction", layout="wide")
+
 st.title("🌠 Pulsar Star Prediction Dashboard")
 
-# ---- Constants ---------------------------------------------------------------
 FEATURE_ORDER = [
     "Mean of the integrated profile",
     "Standard deviation of the integrated profile",
@@ -21,122 +23,176 @@ FEATURE_ORDER = [
     "Skewness of the DM-SNR curve",
 ]
 
+ALL_MODELS = [
+    "lightgbm", "lightgbm_no_smote",
+    "xgboost", "xgboost_no_smote",
+    "svm", "svm_no_smote",
+    "decision_tree", "decision_tree_no_smote",
+    "logreg", "logreg_no_smote"
+]
+
 DEFAULT_API = "http://localhost:8000"
 
-# ---- Sidebar ----------------------------------------------------------------
+
+
+# ========== CHATBOT SESSION SETUP ==========
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+
+# =================== SIDEBAR SETTINGS ====================
 with st.sidebar:
-    st.header("Service Settings")
-    api_url = st.text_input("API URL", value=DEFAULT_API,
-                            help="Point this to your FastAPI service (e.g., http://localhost:8000)")
+    st.header("⚙️ API Settings")
+    api_url = st.text_input("API URL", value=DEFAULT_API)
     st.session_state["api_url"] = api_url
 
-    st.header("Model Selection")
-    selected_model = st.selectbox(
-        "Choose model",
-        ["lightgbm", "xgboost", "svm", "random_forest", "logreg"],
-        index=0
-    )
+    st.header("🤖 Choose Model")
+    selected_model = st.selectbox("Model", ALL_MODELS, index=0)
 
-    st.header("Single Prediction Inputs")
-    mean = st.number_input("Mean of the integrated profile", value=50.0)
-    sd = st.number_input("Standard deviation of the integrated profile", value=35.0)
-    kurt = st.number_input("Excess kurtosis of the integrated profile", value=3.0)
-    skew = st.number_input("Skewness of the integrated profile", value=0.3)
-    mean_dm = st.number_input("Mean of the DM-SNR curve", value=7.0)
-    sd_dm = st.number_input("Standard deviation of the DM-SNR curve", value=8.0)
-    kurt_dm = st.number_input("Excess kurtosis of the DM-SNR curve", value=1.0)
-    skew_dm = st.number_input("Skewness of the DM-SNR curve", value=0.2)
-    thr = st.slider("Decision threshold", 0.0, 1.0, 0.5, 0.01)
+    st.header("🔮 Single Prediction Input")
+    inputs = []
+    labels = FEATURE_ORDER
+    default_values = [50, 35, 3, 0.3, 7, 8, 1, 0.2]
+
+    for lbl, val in zip(labels, default_values):
+        inputs.append(st.number_input(lbl, value=float(val)))
+
+    threshold = st.slider("Decision threshold", 0.0, 1.0, 0.5, 0.01)
 
 
-# ---- Single Prediction -------------------------------------------------------
-st.subheader("Single Prediction")
+
+# =================== SINGLE PREDICTION ====================
+st.subheader("✨ Single Prediction")
+
 if st.button("Predict"):
-    payload = {
-        "features": [mean, sd, kurt, skew, mean_dm, sd_dm, kurt_dm, skew_dm]
-    }
     try:
-        r = requests.post(
+        res = requests.post(
             f"{api_url}/predict_proba?model_name={selected_model}",
-            json=payload,
-            timeout=30
+            json={"features": inputs},
+            timeout=50
         )
-        r.raise_for_status()
-        p = float(r.json()["pulsar_probability"])
-        st.metric("Pulsar Probability", f"{p:.3f}")
-        st.success("Prediction: Pulsar" if p >= thr else "Prediction: Non-Pulsar")
+        res.raise_for_status()
+
+        prob = float(res.json()["pulsar_probability"])
+        st.metric("Pulsar Probability", f"{prob:.4f}")
+
+        st.success("PULSAR ⭐" if prob >= threshold else "Non-Pulsar")
     except Exception as e:
-        st.error(f"Request failed: {e}")
+        st.error(f"Error: {e}")
 
 st.markdown("---")
 
 
-# ---- Batch Scoring + EDA ----------------------------------------------------
-st.subheader("Batch Scoring + EDA")
 
-# STEP 1 — Upload file
-up = st.file_uploader(
-    "Upload CSV (must contain the 8 feature columns in any order; optional `target_class`)",
-    type=["csv"],
-    key="uploaded_file"
-)
+# =================== BATCH SCORING + EDA ====================
+st.subheader("📊 Batch Scoring + EDA")
 
-# STEP 2 — Store dataframe in session_state so model changes re-run prediction
-if up is not None:
-    df_uploaded = pd.read_csv(up)
-    st.session_state["uploaded_df"] = df_uploaded
+upload = st.file_uploader("Upload CSV", type=["csv"])
 
-# Only proceed if a file was uploaded at least once
+if upload is not None:
+    df = pd.read_csv(upload)
+    st.session_state["uploaded_df"] = df
+
 if "uploaded_df" in st.session_state:
+    df = st.session_state["uploaded_df"].copy()
+    df.columns = df.columns.str.strip()
+
+    has_label = "target_class" in df.columns
+    df_features = df.drop(columns=["target_class"], errors="ignore")
+
+    # Clean + convert
+    df_features = df_features[FEATURE_ORDER].apply(pd.to_numeric, errors="coerce")
+    df_features = df_features.fillna(df_features.mean())
+
+    rows = df_features.values.tolist()
+
     try:
-        df = st.session_state["uploaded_df"].copy()
-        df.columns = df.columns.str.strip()
-
-        # Extract optional label
-        has_label = "target_class" in df.columns
-        y_series = df["target_class"].copy() if has_label else None
-
-        # Prepare features
-        X_df = df.copy()
-        if has_label:
-            X_df = X_df.drop(columns=["target_class"], errors="ignore")
-
-        # enforce correct order
-        X_df = X_df[FEATURE_ORDER]
-
-        # Convert to numeric & impute missing values
-        X_df = X_df.apply(pd.to_numeric, errors="coerce")
-        missing_total = int(X_df.isna().sum().sum())
-        if missing_total > 0:
-            st.info(f"Found {missing_total} missing values; imputing with column means.")
-            X_df = X_df.fillna(X_df.mean(numeric_only=True))
-
-        # STEP 3 — Predict using the selected model
-        rows = X_df.values.tolist()
-        r = requests.post(
+        api_response = requests.post(
             f"{api_url}/predict_batch?model_name={selected_model}",
             json={"rows": rows},
             timeout=120
         )
-        r.raise_for_status()
-        probs = r.json()["pulsar_probabilities"]
+        api_response.raise_for_status()
 
-        # STEP 4 — Build predictions dataframe
-        pred_df = X_df.copy()
-        pred_df["pulsar_prob"] = probs
-        pred_df["prediction"] = (pred_df["pulsar_prob"] >= 0.5).astype(int)
+        probs = api_response.json()["pulsar_probabilities"]
+
+        df_pred = df_features.copy()
+        df_pred["pulsar_prob"] = probs
+        df_pred["prediction"] = (df_pred["pulsar_prob"] >= 0.5).astype(int)
+
         if has_label:
-            pred_df["target_class"] = pd.to_numeric(y_series, errors="coerce")
+            df_pred["target_class"] = df["target_class"]
 
-        # STEP 5 — Render EDA (which now updates instantly!)
-        render_eda(df_features=X_df, df_pred=pred_df, has_label=has_label)
+        # Render EDA
+        render_eda(df_features, df_pred, has_label)
 
-        # STEP 6 — Download button
+        # Download button
         st.download_button(
             "Download predictions.csv",
-            pred_df.to_csv(index=False),
+            df_pred.to_csv(index=False),
             "predictions.csv"
         )
 
     except Exception as e:
-        st.error(f"Batch processing failed: {e}")
+        st.error(f"Backend Error: {e}")
+
+# ======================= FLOATING CHATBOT =======================
+
+# CSS
+st.markdown("""
+<style>
+#chatbot-box {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 320px;
+    max-height: 70vh;
+    padding: 15px;
+    background: rgba(255,255,255,0.95);
+    border-radius: 12px;
+    border: 1px solid #ccc;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    overflow-y: auto;
+    z-index: 99999;
+}
+#chatbot-header {
+    font-weight: bold;
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+.chat-user { font-weight: bold; margin-top: 8px; }
+.chat-assistant { margin-left: 4px; margin-bottom: 8px; }
+</style>
+""", unsafe_allow_html=True)
+
+
+
+# Show chat history
+history_html = ""
+for msg in st.session_state.chat_history:
+    if msg["role"] == "user":
+        history_html += f"<div class='chat-user'>You:</div><div>{msg['content']}</div>"
+    else:
+        history_html += f"<div class='chat-assistant'>Assistant:</div><div>{msg['content']}</div>"
+
+st.markdown(history_html, unsafe_allow_html=True)
+
+# Chat input
+query = st.text_input("Ask something:", key="chat_query")
+
+if query:
+    answer = ask_question(query)
+
+    # Store messages
+    st.session_state.chat_history.append({"role": "user", "content": query})
+    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+
+    # Clear ONLY by popping the key
+    st.session_state.pop("chat_query", None)
+
+    # Rerun cleanly
+    st.rerun()
+
+# close chatbot box
+st.markdown("</div>", unsafe_allow_html=True)
+

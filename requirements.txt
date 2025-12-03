@@ -11,4 +11,8 @@ requests>=2.31
 pytest>=8.0
 xgboost>=2.0
 lightgbm>=4.3
+openai>=1.3
+python-dotenv>=1.0  # optional, if you want to load API key from .env
+imbalanced-learn>=0.12
+
 

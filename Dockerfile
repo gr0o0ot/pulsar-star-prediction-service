@@ -1,22 +1,47 @@
-FROM python:3.11-slim
+# -----------------------
+# Base image
+# -----------------------
+FROM python:3.10-slim
 
+# Avoid Python buffering
+ENV PYTHONUNBUFFERED=1
+
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# -----------------------
+# Install OS dependencies
+# -----------------------
 RUN apt-get update && apt-get install -y \
     build-essential \
+    curl \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# -----------------------
+# Copy requirements
+# -----------------------
 COPY requirements.txt .
+
+# -----------------------
+# Install Python deps
+# -----------------------
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all project files
+# -----------------------
+# Copy entire project
+# -----------------------
 COPY . .
 
-# Expose FastAPI and Streamlit ports
+# -----------------------
+# Expose ports
+# FastAPI = 8000
+# Streamlit = 8501
+# -----------------------
 EXPOSE 8000
 EXPOSE 8501
 
-# Run API + Dashboard inside one container
+# -----------------------
+# Start both services
+# -----------------------
 CMD ["bash", "start.sh"]
